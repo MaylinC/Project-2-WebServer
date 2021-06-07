@@ -218,10 +218,66 @@ request_header: token ows t_colon ows text ows t_crlf {
  * 2616.  All the best!
  *
  */
-request: request_line request_header t_crlf{
-	YPRINTF("parsing_request: Matched Success.\n");
-	return SUCCESS;
-};
+
+request:
+	   | request command
+	   ;
+	   
+command: 
+	   one_header 
+	   |
+	   two_header
+	   |
+	   three_header
+	   |
+	   four_header
+	   |
+	   five_header
+	   |
+	   six_header
+	   ;
+
+one_header: 
+		request_line request_header t_crlf
+		{
+ 			YPRINTF("parsing_request: Matched Success.\n");
+ 			return SUCCESS;
+		};
+
+two_header: 
+		request_line request_header request_header t_crlf
+		{
+ 			YPRINTF("parsing_request: Matched Success.\n");
+ 			return SUCCESS;
+		};
+
+three_header: 
+		request_line request_header request_header request_header t_crlf
+		{
+ 			YPRINTF("parsing_request: Matched Success.\n");
+ 			return SUCCESS;
+		};
+
+four_header: 
+		request_line request_header request_header request_header request_header t_crlf 
+		{
+			YPRINTF("parsing_request: Matched Success.\n");
+ 			return SUCCESS;
+		};
+
+five_header: 
+		request_line request_header request_header request_header request_header request_header t_crlf 
+		{
+			YPRINTF("parsing_request: Matched Success.\n");
+			return SUCCESS;
+		}; 
+
+six_header: 
+		request_line request_header request_header request_header request_header request_header request_header t_crlf 
+		{
+			YPRINTF("parsing_request: Matched Success.\n");
+			return SUCCESS;
+		}; 
 
 %%
 
