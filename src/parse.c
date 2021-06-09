@@ -5,6 +5,7 @@
 */
 Request * parse(char *buffer, int size, int socketFd) {
   //Differant states in the state machine
+  printf("in parse \n"); 
 	enum {
 		STATE_START = 0, STATE_CR, STATE_CRLF, STATE_CRLFCR, STATE_CRLFCRLF
 	};

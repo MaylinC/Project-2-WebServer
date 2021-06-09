@@ -70,3 +70,22 @@ void write_all(int connFd, char *buf, size_t len) {
         buf += numWritten;
     }
 }
+
+/* Bad, slow readline */
+ssize_t read_line(int connFd, char *usrbuf, size_t maxlen) {
+    int n;
+    char c, *bufp = usrbuf;
+
+    for (n = 1; n < maxlen; n++) { 
+        int numRead;
+        if ((numRead = read(connFd, &c, 1)) == 1) {
+            *bufp++ = c;
+            if (c == '\n') { n++; break; }
+        } 
+        else if (numRead == 0) { break; } /* EOF */
+        else return -1;	  /* Error */
+    }
+    *bufp = '\0';
+    return n-1;
+}
+
