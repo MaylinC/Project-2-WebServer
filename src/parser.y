@@ -206,6 +206,7 @@ request_line: token t_sp text t_sp text t_crlf {
 
 request_header: token ows t_colon ows text ows t_crlf {
 	YPRINTF("request_Header:\n%s\n%s\n",$1,$5);
+	parsing_request->headers = realloc(parsing_request->headers, sizeof(Request_header)*(parsing_request->header_count + 1));
     strcpy(parsing_request->headers[parsing_request->header_count].header_name, $1);
 	strcpy(parsing_request->headers[parsing_request->header_count].header_value, $5);
 	parsing_request->header_count++;
@@ -218,66 +219,20 @@ request_header: token ows t_colon ows text ows t_crlf {
  * 2616.  All the best!
  *
  */
+head : request_header {
+        YPRINTF("parsing_request: Matched Success.\n");
+        return SUCCESS;
+} | 
 
-request:
-	   | request command
-	   ;
-	   
-command: 
-	   one_header 
-	   |
-	   two_header
-	   |
-	   three_header
-	   |
-	   four_header
-	   |
-	   five_header
-	   |
-	   six_header
-	   ;
+request_header head{
+        YPRINTF("parsing_request: Matched Success.\n");
+        return SUCCESS;
+};
 
-one_header: 
-		request_line request_header t_crlf
-		{
- 			YPRINTF("parsing_request: Matched Success.\n");
- 			return SUCCESS;
-		};
-
-two_header: 
-		request_line request_header request_header t_crlf
-		{
- 			YPRINTF("parsing_request: Matched Success.\n");
- 			return SUCCESS;
-		};
-
-three_header: 
-		request_line request_header request_header request_header t_crlf
-		{
- 			YPRINTF("parsing_request: Matched Success.\n");
- 			return SUCCESS;
-		};
-
-four_header: 
-		request_line request_header request_header request_header request_header t_crlf 
-		{
-			YPRINTF("parsing_request: Matched Success.\n");
- 			return SUCCESS;
-		};
-
-five_header: 
-		request_line request_header request_header request_header request_header request_header t_crlf 
-		{
-			YPRINTF("parsing_request: Matched Success.\n");
-			return SUCCESS;
-		}; 
-
-six_header: 
-		request_line request_header request_header request_header request_header request_header request_header t_crlf 
-		{
-			YPRINTF("parsing_request: Matched Success.\n");
-			return SUCCESS;
-		}; 
+request: request_line head t_crlf{
+	YPRINTF("parsing_request: Matched Success.\n");
+	return SUCCESS;
+};
 
 %%
 
