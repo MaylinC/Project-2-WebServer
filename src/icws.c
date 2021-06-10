@@ -93,33 +93,58 @@ void serve_http(int connFd,char *rootFolder)
 {
     
     char buf[MAXBUF];
+    char buffer[MAXBUF]; 
+    int readRet; 
+    int sizeRat = 0; 
+    while((readRet = read_line(connFd, buf, MAXBUF))>0) {
+        sizeRat+=readRet; 
+        strcat(buffer, buf); 
+        if (!strcmp(buf,"\r\n")) {
+            break; 
+        }
+    }
+    if (readRet < 0) {
+	    printf("Failed read\n");
+	    return;
+	}
 
+    // for(int i = 0; i < sizeRat; i++) {
+    //     printf("%c", buffer[i]); 
+    // }   
 
-    // char newPath[80];
-    // if (strcasecmp(request->http_method, "GET") == 0)
-    // {
-    //     if (request->http_uri[0] == '/')
-    //     {
-    //         sprintf(newPath, "%s%s", rootFolder, request->http_uri);
-    //         if (strstr(request->http_uri, "html") != NULL)
-    //         {
-    //             respond_all(connFd, newPath, "text/html");
-    //         }
-    //         else if (strstr(request->http_uri, "jpg") != NULL || strstr(request->http_uri, "jpeg") != NULL)
-    //         {
-    //             respond_all(connFd, newPath, "image/jpeg");
-    //         }
-    //         else
-    //         {
-    //             respond_all(connFd, newPath, NULL);
-    //         }
-    //     }
-    // }
-    // else
-    // {
-    //     // respond_all(connFd, newPath, NULL);
-    //     printf("LOG: Unknown request\n");
-    // }
+    Request *request = parse(buffer,sizeRat,connFd);
+
+    if (request == NULL) // handled malformede request
+    {
+        free(request);
+        exit(1);
+    }
+
+    char newPath[80];
+    if (strcasecmp(request->http_method, "GET") == 0)
+    {
+        if (request->http_uri[0] == '/')
+        {
+            sprintf(newPath, "%s%s", rootFolder, request->http_uri);
+            if (strstr(request->http_uri, "html") != NULL)
+            {
+                respond_all(connFd, newPath, "text/html");
+            }
+            else if (strstr(request->http_uri, "jpg") != NULL || strstr(request->http_uri, "jpeg") != NULL)
+            {
+                respond_all(connFd, newPath, "image/jpeg");
+            }
+            else
+            {
+                respond_all(connFd, newPath, NULL);
+            }
+        }
+    }
+    else
+    {
+        // respond_all(connFd, newPath, NULL);
+        printf("LOG: Unknown request\n");
+    }
 }
 
 void* conn_handler(void *args) {
@@ -182,28 +207,6 @@ int main(int argc, char *argv[])
 
         struct survival_bag *context = 
             (struct survival_bag *) malloc(sizeof(struct survival_bag));
-
-        // int fd_in = open(rootFolder, O_RDONLY);
-        // int index;
-
-        char buf[MAXBUF];
-
-	    // if (fd_in < 0) {
-		//     printf("Failed to open the file\n");
-		//     return 0;
-	    // }
-
-        int readRet = read(connFd,buf,MAXBUF); 
-
-        for(int i = 0; i < readRet; i++) {
-            printf("%c", buf[i]); 
-        }
-
-        Request *request = parse(buf,readRet,connFd);
-
-        printf("Http Method %s\n",request->http_method);
-        printf("Http Version %s\n",request->http_version);
-        printf("Http Uri %s\n",request->http_uri);
 
         context->connFd = connFd;
         context->rootFolder = rootFolder;
