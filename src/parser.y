@@ -227,7 +227,13 @@ head : request_header {
 request_header head{
         YPRINTF("parsing_request: Matched Success.\n");
         return SUCCESS;
-};
+} | 
+ 
+{
+	YPRINTF("parsing_request: Matched Success.\n");
+    return SUCCESS; 
+}; 
+
 
 request: request_line head t_crlf{
 	YPRINTF("parsing_request: Matched Success.\n");

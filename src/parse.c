@@ -53,6 +53,7 @@ Request * parse(char *buffer, int size, int socketFd) {
         request->header_count=0;
         //TODO: You will need to handle resizing this in parser.y
         request->headers = (Request_header *) malloc(sizeof(Request_header)*1);
+		yyrestart(NULL);
 		set_parsing_options(buf, i, request);
 
 		if (yyparse() == SUCCESS) {

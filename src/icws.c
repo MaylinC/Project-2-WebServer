@@ -94,12 +94,6 @@ void serve_http(int connFd,char *rootFolder)
     
     char buf[MAXBUF];
 
-    int readRet = read(connFd,buf,MAXBUF);
-    Request *request = parse(buf,MAXBUF,connFd);
-
-    // printf("Http Method %s\n",request->http_method);
-    // printf("Http Version %s\n",request->http_version);
-    // printf("Http Uri %s\n",request->http_uri);
 
     // char newPath[80];
     // if (strcasecmp(request->http_method, "GET") == 0)
@@ -186,15 +180,36 @@ int main(int argc, char *argv[])
             continue;
         }
 
-         struct survival_bag *context = 
+        struct survival_bag *context = 
             (struct survival_bag *) malloc(sizeof(struct survival_bag));
+
+        // int fd_in = open(rootFolder, O_RDONLY);
+        // int index;
+
+        char buf[MAXBUF];
+
+	    // if (fd_in < 0) {
+		//     printf("Failed to open the file\n");
+		//     return 0;
+	    // }
+
+        int readRet = read(connFd,buf,MAXBUF); 
+
+        for(int i = 0; i < readRet; i++) {
+            printf("%c", buf[i]); 
+        }
+
+        Request *request = parse(buf,readRet,connFd);
+
+        printf("Http Method %s\n",request->http_method);
+        printf("Http Version %s\n",request->http_version);
+        printf("Http Uri %s\n",request->http_uri);
 
         context->connFd = connFd;
         context->rootFolder = rootFolder;
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
 
         conn_handler((void *) context); 
-
 
         char hostBuf[MAXBUF], svcBuf[MAXBUF];
         if (getnameinfo((SA *)&clientAddr, clientLen,
