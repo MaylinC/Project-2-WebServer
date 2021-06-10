@@ -41,35 +41,6 @@ char *local_time() {
 
 }
 
-void write_logic(int data, int outputFd)
-{
-    ssize_t bytesRead;
-    char buf[MAXBUF];
-
-    while ((bytesRead = read(data, buf, MAXBUF)) > 0)
-    {
-        if (bytesRead < 0) {
-            
-            fprintf(stderr, "ERROR writing, meh\n");
-            break;
-        }
-        ssize_t numToWrite = bytesRead;
-        char *writeBuf = buf;
-        while (numToWrite > 0)
-        {
-            ssize_t numWritten = write(outputFd, writeBuf, numToWrite);
-            if (numWritten < 0)
-            {
-                fprintf(stderr, "ERROR writing, meh\n");
-                break;
-            }
-            numToWrite -= numWritten;
-            writeBuf += numWritten;
-        }
-    }
-    printf("DEBUG: Connection closed\n");
-}
-
 void respond_head(int connFd, char *uri, char *mime) { 
 
     char buf[MAXBUF];
@@ -77,7 +48,7 @@ void respond_head(int connFd, char *uri, char *mime) {
 
     if (uriFd < 0 || mime == NULL)
     {
-        char *msg = "404 Not Found";
+        char *msg = "404 Not Found\n";
         sprintf(buf,
                 "HTTP/1.1 404 Not Found\r\n"
                 "Date: %s\r\n"
@@ -95,8 +66,9 @@ void respond_head(int connFd, char *uri, char *mime) {
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size, mime);
+            "Content-type: %s\r\n"
+            "Last-Modified: %s\r\n\r\n",
+            local_time(),fstatbuf.st_size,mime,ctime(&fstatbuf.st_mtim));
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
 }
 
@@ -127,8 +99,9 @@ void respond_all(int connFd, char *uri, char *mime)
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size, mime);
+            "Content-type: %s\r\n"
+            "Last-Modified: %s\r\n\r\n",
+            local_time(),fstatbuf.st_size, mime, ctime(&fstatbuf.st_mtim));
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
     write_logic(uriFd, connFd); // send the content data into connFd
 }

@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #define LISTEN_QUEUE 5
+#define MAXBUF 8192
 
 int open_listenfd(char *port) {
     struct addrinfo hints;
@@ -89,3 +90,31 @@ ssize_t read_line(int connFd, char *usrbuf, size_t maxlen) {
     return n-1;
 }
 
+void write_logic(int data, int outputFd)
+{
+    ssize_t bytesRead;
+    char buf[MAXBUF];
+
+    while ((bytesRead = read(data, buf, MAXBUF)) > 0)
+    {
+        if (bytesRead < 0) {
+            
+            fprintf(stderr, "ERROR writing, meh\n");
+            break;
+        }
+        ssize_t numToWrite = bytesRead;
+        char *writeBuf = buf;
+        while (numToWrite > 0)
+        {
+            ssize_t numWritten = write(outputFd, writeBuf, numToWrite);
+            if (numWritten < 0)
+            {
+                fprintf(stderr, "ERROR writing, meh\n");
+                break;
+            }
+            numToWrite -= numWritten;
+            writeBuf += numWritten;
+        }
+    }
+    printf("DEBUG: Connection closed\n");
+}

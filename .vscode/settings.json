@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "stat.h": "c",
-        "unistd.h": "c"
+        "unistd.h": "c",
+        "ip.h": "c"
     }
 }
