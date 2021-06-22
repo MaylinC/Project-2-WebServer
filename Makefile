@@ -8,6 +8,8 @@ OBJ := $(OBJ_DIR)/y.tab.o $(OBJ_DIR)/lex.yy.o $(OBJ_DIR)/parse.o $(OBJ_DIR)/icws
 BIN := icws
 # C compiler
 CC  := gcc
+# C compiler
+CPP := g++
 # C PreProcessor Flag
 CPPFLAGS := 
 # compiler flags
@@ -18,10 +20,10 @@ default: all
 all : icws 
 
 icws: $(OBJ)
-	$(CC) $^ -o $@
+	$(CPP) $(CPPFLAGS) $^ -o $@
 
-pcsa_net: $(OBJ)
-	$(CC) $^ -o $@
+# pcsa_net: $(OBJ)
+# 	$(CC) $^ -o $@
 
 $(SRC_DIR)/lex.yy.c: $(SRC_DIR)/lexer.l
 	flex -o $@ $^
@@ -33,6 +35,9 @@ $(SRC_DIR)/y.tab.c: $(SRC_DIR)/parser.y
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(OBJ_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(OBJ_DIR)
+	$(CPP) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 #echo_server: $(OBJ_DIR)/echo_server.o
 #	$(CC) -Werror $^ -o $@

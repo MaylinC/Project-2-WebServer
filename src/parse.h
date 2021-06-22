@@ -8,6 +8,7 @@
 int open_listenfd(char *port);
 ssize_t read_line(int connFd, char *usrbuf, size_t maxlen);
 void write_all(int connFd, char *buf, size_t len);
+void write_logic(int data, int outputFd); 
 
 //Header field
 typedef struct

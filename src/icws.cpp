@@ -4,17 +4,20 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
-#include <unistd.h>
 #include <pthread.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <getopt.h>
 #include <time.h>
-#include "parse.h"
+#include "workQueue.hpp"
+extern "C" 
+{
+    #include "parse.h"
+}
 #define MAXBUF 8192
-
 typedef struct sockaddr SA;
 
 struct survival_bag {
@@ -27,9 +30,14 @@ static struct option long_options[] =   {
 
     {"port", required_argument, NULL, 'p'},
     {"root", required_argument, NULL, 'r'},
+    {"numThreads", required_argument, NULL, 't'},
+    {"timeout", required_argument, NULL, 'o'},
     {NULL, 0, NULL, 0}
 };
 
+struct {
+    work_queue work_q;
+} shared;
 
 char *local_time() {
 
@@ -67,8 +75,8 @@ void respond_head(int connFd, char *uri, char *mime) {
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
-            "Last-Modified: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size,mime,ctime(&fstatbuf.st_mtim));
+            ,
+            local_time(),fstatbuf.st_size,mime);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
 }
 
@@ -100,8 +108,8 @@ void respond_all(int connFd, char *uri, char *mime)
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
-            "Last-Modified: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size, mime, ctime(&fstatbuf.st_mtim));
+            ,
+            local_time(),fstatbuf.st_size, mime);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
     write_logic(uriFd, connFd); // send the content data into connFd
 }
@@ -150,11 +158,9 @@ char *parse_file_type(int connFd,char *rootFolder, Request *request) {
     else if (strcmp(get_filename_ext(request->http_uri),"gif") == 0) {
         
         m_type = "image/gif"; 
-        return m_type; 
-        
+        return m_type;  
     }
     else {
-
         return m_type;
     }
 }
@@ -247,18 +253,38 @@ void serve_http(int connFd,char *rootFolder)
     }
 }
 
-void* conn_handler(void *args) {
+void * do_work(void *rootFolder) {
 
-    struct survival_bag *context = (struct survival_bag *) args;
-    //pthread_detach(pthread_self());
-    serve_http(context->connFd,context->rootFolder);
-    close(context->connFd);
-    free(context); /* Done, get rid of our survival bag */
-    return NULL; /* Nothing meaningful to return */
+    for (;;) {
+        char * r_fd = (char *)rootFolder; 
+        long w;
+        if (shared.work_q.remove_job(&w)) {
+            if (w == NULL) break; // Terminate with a number < 0 , inactive file discriptor 
+            // NOTE: in fact printf is not thread safe
+            serve_http(w,r_fd); 
+        }
+        else {
+            
+            pthread_mutex_lock(&shared.work_q.jobs_mutex);
+            pthread_cond_wait(&shared.work_q.condition_variable, &shared.work_q.jobs_mutex);
+            pthread_mutex_unlock(&shared.work_q.jobs_mutex);
+        }
+        /* Option 5: Go to sleep until it's been notified of changes in the
+         * work_queue. Use semaphores or conditional variables
+         */
+    }
 }
 
+// void* conn_handler(void *args) {
+
+//     struct survival_bag *context = (struct survival_bag *) args;
+//     //pthread_detach(pthread_self());
+//     serve_http(context->connFd,context->rootFolder);
+//     return NULL; /* Nothing meaningful to return */
+// }
+
 void print_usage() {
-    printf("Usage: ./icws --port <listenPort> --root <wwwRoot> \n"); 
+    printf("Usage: ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout>  \n"); 
     exit(1); 
 }
 
@@ -267,12 +293,15 @@ int main(int argc, char *argv[])
     int option; 
     int listenFd;
     char *rootFolder;
+    int numThread;
+    int timeOut;
+    pthread_t *thread_array; 
 
-    if (argc < 5) {
+    if (argc < 9) {
         print_usage(); 
     } 
 
-    while ((option = getopt_long(argc,argv,"p:r:", long_options, NULL)) != -1) {   
+    while ((option = getopt_long(argc,argv,"p:r:t:o", long_options, NULL)) != -1) {   
         
         switch (option) {
 
@@ -288,10 +317,26 @@ int main(int argc, char *argv[])
             printf("root: %s \n", rootFolder); 
             break;
 
+            case 't': 
+            numThread = atoi(optarg);
+            printf("numThread: %d \n", numThread); 
+            break;
+
+            case 'o': 
+            timeOut = atoi(optarg);
+            printf("timeOut: %d \n", timeOut); 
+            break;
+
             default: 
             exit(1); 
         } 
     }
+
+    thread_array = (pthread_t*)malloc(sizeof(pthread_t)*numThread);
+    for(int i = 0; i < numThread; i++){  // create thread accroding to numThread
+        pthread_create(&thread_array[i],NULL,do_work,(void *)rootFolder); 
+    }
+    
     for (;;)
     {
         struct sockaddr_storage clientAddr;
@@ -312,7 +357,7 @@ int main(int argc, char *argv[])
         context->rootFolder = rootFolder;
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
 
-        conn_handler((void *) context); 
+        //conn_handler((void *) context); 
 
         char hostBuf[MAXBUF], svcBuf[MAXBUF];
         if (getnameinfo((SA *)&clientAddr, clientLen,
@@ -320,7 +365,12 @@ int main(int argc, char *argv[])
             printf("Connection from %s:%s\n", hostBuf, svcBuf);
         else
             printf("Connection from ?UNKNOWN?\n");
- 
+        
+        
+        shared.work_q.add_job(context->connFd); 
+        close(context->connFd);
+        free(context);
+
     }
 
     return 0;
