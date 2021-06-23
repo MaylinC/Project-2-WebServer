@@ -88,7 +88,7 @@ void respond_head(int connFd, char *uri, char *mime) {
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n"
+            "Content-type: %s\r\n\r\n"
             ,
             local_time(),fstatbuf.st_size,mime);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
@@ -121,7 +121,7 @@ void respond_all(int connFd, char *uri, char *mime)
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n"
+            "Content-type: %s\r\n\r\n"
             ,
             local_time(),fstatbuf.st_size, mime);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
@@ -249,7 +249,8 @@ void serve_http(int connFd,char *rootFolder)
                 "HTTP/1.1 505 HTTP Version Not Supported \r\n"
                 "Date: %s\r\n"
                 "Server: icws\r\n"
-                "Connection: close\r\n\r\n",local_time());
+                "Connection: close\r\n\r\n"
+                ,local_time());
         write_all(connFd, head, strlen(head));
         free(request->headers); 
         free(request);
