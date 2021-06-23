@@ -8,9 +8,11 @@ OBJ := $(OBJ_DIR)/y.tab.o $(OBJ_DIR)/lex.yy.o $(OBJ_DIR)/parse.o $(OBJ_DIR)/icws
 BIN := icws
 # C compiler
 CC  := gcc
-# C compiler
+# C++ compiler
 CPP := g++
 # C PreProcessor Flag
+LIBFLAGS := -pthread
+# thread
 CPPFLAGS := 
 # compiler flags
 CFLAGS   := -g -Wall
@@ -20,7 +22,7 @@ default: all
 all : icws 
 
 icws: $(OBJ)
-	$(CPP) $(CPPFLAGS) $^ -o $@
+	$(CPP) $(CPPFLAGS) $(LIBFLAGS) $^ -o $@
 
 # pcsa_net: $(OBJ)
 # 	$(CC) $^ -o $@

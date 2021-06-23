@@ -18,6 +18,9 @@ extern "C"
     #include "parse.h"
 }
 #define MAXBUF 8192
+
+char *rootFolder_glob;
+
 typedef struct sockaddr SA;
 
 struct survival_bag {
@@ -38,6 +41,17 @@ static struct option long_options[] =   {
 struct {
     work_queue work_q;
 } shared;
+
+typedef enum {
+  RUNNING, EXITING
+} p_state;
+
+typedef struct p_threadpool{
+    p_state state; 
+    pthread_t *thread_array;  
+    int thread_count;
+    int thread_live;
+} threadpool; 
 
 char *local_time() {
 
@@ -174,6 +188,7 @@ void serve_http(int connFd,char *rootFolder)
     char newPath[80];
     int readRet; 
     int sizeRat = 0; 
+    
     while((readRet = read_line(connFd, buf, MAXBUF))>0) {
         sizeRat+=readRet; 
         strcat(buffer, buf); 
@@ -181,6 +196,7 @@ void serve_http(int connFd,char *rootFolder)
             break; 
         }
     }
+    printf("readRet: %d", readRet); 
     if (readRet < 0) {
 	    printf("Failed read\n");
 	    return;
@@ -253,26 +269,35 @@ void serve_http(int connFd,char *rootFolder)
     }
 }
 
-void * do_work(void *rootFolder) {
+void * do_work(void *pool) {
 
     for (;;) {
-        char * r_fd = (char *)rootFolder; 
+
+        threadpool *t_pool = (threadpool *) pool;
+
+        printf("numthread: %d \n", t_pool->thread_count);
+        //printf("state: %s \n", t_pool->state);
+        //char * r_fd = (char *)rootFolder; 
         long w;
         if (shared.work_q.remove_job(&w)) {
             if (w == NULL) break; // Terminate with a number < 0 , inactive file discriptor 
             // NOTE: in fact printf is not thread safe
-            serve_http(w,r_fd); 
+            serve_http(w,rootFolder_glob);   
+            close(w);
         }
+
         else {
             
+            // printf("im going to break \n"); 
+            // break; 
+    
             pthread_mutex_lock(&shared.work_q.jobs_mutex);
             pthread_cond_wait(&shared.work_q.condition_variable, &shared.work_q.jobs_mutex);
             pthread_mutex_unlock(&shared.work_q.jobs_mutex);
         }
-        /* Option 5: Go to sleep until it's been notified of changes in the
-         * work_queue. Use semaphores or conditional variables
-         */
     }
+        /* Option 5: Go to sleep until it's been notified of changes in the
+         * work_queue. Use semaphores or conditional variables  */
 }
 
 // void* conn_handler(void *args) {
@@ -293,9 +318,11 @@ int main(int argc, char *argv[])
     int option; 
     int listenFd;
     char *rootFolder;
-    int numThread;
     int timeOut;
-    pthread_t *thread_array; 
+    int numThread;
+    threadpool *pool;
+
+    //pthread_t thread_array[numThread]; 
 
     if (argc < 9) {
         print_usage(); 
@@ -332,9 +359,24 @@ int main(int argc, char *argv[])
         } 
     }
 
-    thread_array = (pthread_t*)malloc(sizeof(pthread_t)*numThread);
-    for(int i = 0; i < numThread; i++){  // create thread accroding to numThread
-        pthread_create(&thread_array[i],NULL,do_work,(void *)rootFolder); 
+    pool = (threadpool *) malloc(sizeof(threadpool));
+    if (pool == NULL) { 
+        fprintf(stderr, "fail to malloc!\n");
+		return NULL;
+    }
+
+    pool->thread_count = numThread;
+    pool->state = RUNNING;
+    pool->thread_array = (pthread_t *) malloc (pool->thread_count * sizeof(pthread_t));
+
+    if (pool->thread_array == NULL) {
+        fprintf(stderr, "fail to malloc!\n");
+        free(pool);
+		return NULL;
+    }
+    //thread_array = (pthread_t*)malloc(sizeof(pthread_t)*numThread);
+    for(int i = 0; i < pool->thread_count; i++){  // create thread accroding to numThread
+        pthread_create(& pool->thread_array[i],NULL,do_work,(void *)pool); 
     }
     
     for (;;)
@@ -354,8 +396,12 @@ int main(int argc, char *argv[])
             (struct survival_bag *) malloc(sizeof(struct survival_bag));
 
         context->connFd = connFd;
+        printf("connFd: %d \n", connFd); 
         context->rootFolder = rootFolder;
+        rootFolder_glob = context->rootFolder; 
+        printf("rootFolder_glob: %s \n", rootFolder_glob); 
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
+        shared.work_q.add_job(context->connFd); 
 
         //conn_handler((void *) context); 
 
@@ -366,9 +412,6 @@ int main(int argc, char *argv[])
         else
             printf("Connection from ?UNKNOWN?\n");
         
-        
-        shared.work_q.add_job(context->connFd); 
-        close(context->connFd);
         free(context);
 
     }
