@@ -14,8 +14,8 @@ struct work_queue {
     int add_job(long num) {
         pthread_mutex_lock(&this->jobs_mutex);
         jobs.push_back(num);
-        pthread_cond_signal(&condition_variable); 
         size_t len = jobs.size();
+        pthread_cond_signal(&condition_variable); 
         pthread_mutex_unlock(&this->jobs_mutex);
         return len;
     }

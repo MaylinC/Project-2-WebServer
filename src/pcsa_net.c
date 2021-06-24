@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <errno.h>
 #define LISTEN_QUEUE 5
 #define MAXBUF 8192
 

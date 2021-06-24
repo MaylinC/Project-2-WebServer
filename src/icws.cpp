@@ -16,8 +16,11 @@
 extern "C" 
 {
     #include "parse.h"
+    #include "work_q.h"
 }
 #define MAXBUF 8192
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  
+pthread_cond_t condition_variable = PTHREAD_COND_INITIALIZER; 
 
 char *rootFolder_glob;
 
@@ -73,7 +76,7 @@ void respond_head(int connFd, char *uri, char *mime) {
         char *msg = "404 Not Found\n";
         sprintf(buf,
                 "HTTP/1.1 404 Not Found\r\n"
-                "Date: %s\r\n"
+                "Date: %s"
                 "Server: icws\r\n"
                 "Connection: close\r\n\r\n",local_time());
         write_all(connFd, buf, strlen(buf));
@@ -84,12 +87,11 @@ void respond_head(int connFd, char *uri, char *mime) {
     fstat(uriFd, &fstatbuf);
     sprintf(buf,
             "HTTP/1.1 200 OK\r\n"
-            "Date: %s\r\n"
+            "Date: %s"
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n"
-            ,
+            "Content-type: %s\r\n\r\n",
             local_time(),fstatbuf.st_size,mime);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
 }
@@ -105,7 +107,7 @@ void respond_all(int connFd, char *uri, char *mime)
     {
         sprintf(buf,
                 "HTTP/1.1 404 Not Found\r\n"
-                "Date: %s\r\n"
+                "Date: %s"
                 "Server: icws\r\n"
                 "Connection: close\r\n\r\n",local_time());
         write_all(connFd, buf, strlen(buf));
@@ -117,12 +119,11 @@ void respond_all(int connFd, char *uri, char *mime)
     fstat(uriFd, &fstatbuf);
     sprintf(buf,
             "HTTP/1.1 200 OK\r\n"
-            "Date: %s\r\n"
+            "Date: %s"
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n"
-            ,
+            "Content-type: %s\r\n\r\n",
             local_time(),fstatbuf.st_size, mime);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
     write_logic(uriFd, connFd); // send the content data into connFd
@@ -179,7 +180,7 @@ char *parse_file_type(int connFd,char *rootFolder, Request *request) {
     }
 }
 
-void serve_http(int connFd,char *rootFolder)
+void serve_http(int* connfd,char *rootFolder)
 {
     
     char buf[MAXBUF];
@@ -188,7 +189,9 @@ void serve_http(int connFd,char *rootFolder)
     char newPath[80];
     int readRet; 
     int sizeRat = 0; 
-    
+
+    int connFd = *((int*)connfd); 
+    printf("connFd in serv: %d \n", connFd); 
     while((readRet = read_line(connFd, buf, MAXBUF))>0) {
         sizeRat+=readRet; 
         strcat(buffer, buf); 
@@ -196,6 +199,7 @@ void serve_http(int connFd,char *rootFolder)
             break; 
         }
     }
+
     printf("readRet: %d", readRet); 
     if (readRet < 0) {
 	    printf("Failed read\n");
@@ -275,27 +279,43 @@ void * do_work(void *pool) {
     for (;;) {
 
         threadpool *t_pool = (threadpool *) pool;
+        //printf("numthread: %d \n", t_pool->thread_count);
+        pthread_mutex_lock(&mutex); 
+        int *ct_client; 
+    
+        if ((ct_client = pop()) == NULL) {
 
-        printf("numthread: %d \n", t_pool->thread_count);
+            pthread_cond_wait(&condition_variable, &mutex); 
+            ct_client = pop();
+            printf("ct_client: %d \n", ct_client);   
+        }
+        pthread_mutex_unlock(&mutex); 
+
+        if (ct_client != NULL) {
+            
+            serve_http(ct_client,rootFolder_glob); 
+            int connFd = *((int*)ct_client);  
+            close(connFd);
+        }
         //printf("state: %s \n", t_pool->state);
         //char * r_fd = (char *)rootFolder; 
-        long w;
-        if (shared.work_q.remove_job(&w)) {
-            if (w == NULL) break; // Terminate with a number < 0 , inactive file discriptor 
-            // NOTE: in fact printf is not thread safe
-            serve_http(w,rootFolder_glob);   
-            close(w);
-        }
+        // long w;
+        // if (shared.work_q.remove_job(&w)) {
+        //     if (w == NULL) break; // Terminate with a number < 0 , inactive file discriptor 
+        //     // NOTE: in fact printf is not thread safe
+        //     serve_http(w,rootFolder_glob);   
+        //     close(w);
+        // }
 
-        else {
+        // else {
             
-            // printf("im going to break \n"); 
-            // break; 
-    
-            pthread_mutex_lock(&shared.work_q.jobs_mutex);
-            pthread_cond_wait(&shared.work_q.condition_variable, &shared.work_q.jobs_mutex);
-            pthread_mutex_unlock(&shared.work_q.jobs_mutex);
-        }
+        //     // printf("im going to break \n"); 
+        //     // break; 
+        //     sleep(3); 
+        //     // pthread_mutex_lock(&shared.work_q.jobs_mutex);
+        //     // pthread_cond_wait(&shared.work_q.condition_variable, &shared.work_q.jobs_mutex);
+        //     // pthread_mutex_unlock(&shared.work_q.jobs_mutex);
+        // }
     }
         /* Option 5: Go to sleep until it's been notified of changes in the
          * work_queue. Use semaphores or conditional variables  */
@@ -402,9 +422,15 @@ int main(int argc, char *argv[])
         rootFolder_glob = context->rootFolder; 
         printf("rootFolder_glob: %s \n", rootFolder_glob); 
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
-        shared.work_q.add_job(context->connFd); 
+        //shared.work_q.add_job(context->connFd); 
+        //conn_handler((void *) context);
 
-        //conn_handler((void *) context); 
+        int *cf_client = (int *)malloc(sizeof(int)); 
+        *cf_client = context->connFd; 
+        pthread_mutex_lock(&mutex); 
+        push(cf_client); 
+        pthread_cond_signal(&condition_variable); 
+        pthread_mutex_unlock(&mutex);  
 
         char hostBuf[MAXBUF], svcBuf[MAXBUF];
         if (getnameinfo((SA *)&clientAddr, clientLen,
@@ -412,6 +438,7 @@ int main(int argc, char *argv[])
             printf("Connection from %s:%s\n", hostBuf, svcBuf);
         else
             printf("Connection from ?UNKNOWN?\n");
+        
         
         free(context);
 
