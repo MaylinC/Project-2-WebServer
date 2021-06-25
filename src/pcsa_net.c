@@ -73,7 +73,6 @@ void write_all(int connFd, char *buf, size_t len) {
     }
 }
 
-/* Bad, slow readline */
 ssize_t read_line(int connFd, char *usrbuf, size_t maxlen) {
     int n;
     char c, *bufp = usrbuf;

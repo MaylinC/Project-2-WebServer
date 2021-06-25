@@ -22,7 +22,7 @@ default: all
 all : icws 
 
 icws: $(OBJ)
-	$(CPP) $(CPPFLAGS) $(LIBFLAGS) $^ -o $@
+	$(CC) $(CPPFLAGS) $(LIBFLAGS) $^ -o $@
 
 # pcsa_net: $(OBJ)
 # 	$(CC) $^ -o $@

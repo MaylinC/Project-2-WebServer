@@ -12,13 +12,16 @@
 #include <netinet/ip.h>
 #include <getopt.h>
 #include <time.h>
-#include "workQueue.hpp"
-extern "C" 
-{
-    #include "parse.h"
-    #include "work_q.h"
-}
+//#include "workQueue.hpp"
+// extern "C" 
+// {
+//     #include "parse.h"
+//     #include "work_q.h"
+// }
+#include "parse.h"
+#include "work_q.h"
 #define MAXBUF 8192
+
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  
 pthread_cond_t condition_variable = PTHREAD_COND_INITIALIZER; 
 
@@ -41,9 +44,9 @@ static struct option long_options[] =   {
     {NULL, 0, NULL, 0}
 };
 
-struct {
-    work_queue work_q;
-} shared;
+// struct {
+//     work_queue work_q;
+// } shared;
 
 typedef enum {
   RUNNING, EXITING
@@ -206,7 +209,11 @@ void serve_http(int* connfd,char *rootFolder)
 	    return;
 	}
 
+    pthread_mutex_lock(&mutex); 
+
     Request *request = parse(buffer,sizeRat,connFd);
+
+    pthread_mutex_unlock(&mutex);  
     
     if (request == NULL) // handled malformede request
     {
