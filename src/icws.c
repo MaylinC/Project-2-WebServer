@@ -13,8 +13,6 @@
 #include <getopt.h>
 #include <time.h>
 #include <poll.h>
-
-//#include "workQueue.hpp"
 // extern "C" 
 // {
 //     #include "parse.h"
@@ -30,6 +28,7 @@ pthread_cond_t condition_variable = PTHREAD_COND_INITIALIZER;
 struct pollfd fds[1]; 
 int timeOut;
 int ret; 
+int *cf_client; 
 
 char *rootFolder_glob;
 
@@ -58,7 +57,6 @@ typedef struct p_threadpool{
     p_state state; 
     pthread_t *thread_array;  
     int thread_count;
-    int thread_live;
 } threadpool; 
 
 char *local_time() {
@@ -200,7 +198,7 @@ void serve_http(int* connfd,char *rootFolder)
 
     int connFd = *((int*)connfd); 
     
-    printf("connFd in serv: %d \n", connFd); 
+    //printf("connFd in serv: %d \n", connFd); 
 
     fds[0].fd = connFd; 
     fds[0].events = POLLIN;
@@ -208,7 +206,7 @@ void serve_http(int* connfd,char *rootFolder)
     ret = poll(fds,1,timeOut);
 
     if (ret == -1) {
-		perror ("poll");
+		perror ("poll error");
 		exit(1); 
 	}
 
@@ -228,7 +226,7 @@ void serve_http(int* connfd,char *rootFolder)
         }
     }
 
-    printf("readRet: %d", readRet); 
+    //printf("readRet: %d", readRet); 
     if (readRet < 0) {
 	    printf("Failed read\n");
 	    return;
@@ -376,8 +374,6 @@ int main(int argc, char *argv[])
             break;
 
             case 'r':
-            //rootFolder = (char*)malloc(sizeof(char) * sizeof(optarg));
-            //memcpy(rootFolder, optarg, strlen(optarg));
             rootFolder = optarg; 
             printf("root: %s \n", rootFolder); 
             break;
@@ -391,13 +387,6 @@ int main(int argc, char *argv[])
             exit(1); 
         } 
     }
-
-    // struct poll_timeout *poll_to = 
-    //         (struct poll_timeout *) malloc(sizeof(struct poll_timeout));
-
-    // poll_to->timeout = timeOut; 
-
-    printf("timeOut: in icws %d \n", timeOut); 
 
     pool = (threadpool *) malloc(sizeof(threadpool));
     if (pool == NULL) { 
@@ -449,7 +438,7 @@ int main(int argc, char *argv[])
         //shared.work_q.add_job(context->connFd); 
         //conn_handler((void *) context);
 
-        int *cf_client = (int *)malloc(sizeof(int)); 
+        cf_client = (int *)malloc(sizeof(int)); 
 
         if (cf_client == NULL) { 
             fprintf(stderr, "fail to malloc!\n");
@@ -469,10 +458,14 @@ int main(int argc, char *argv[])
         else
             printf("Connection from ?UNKNOWN?\n");
         
-        
         free(context);
-
     }
+
+    free(pool->thread_array);
+    free(pool); 
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&condition_variable); 
+    free(cf_client); 
 
     return 0;
 }
