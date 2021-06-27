@@ -1,13 +1,23 @@
 #include "work_q.h"
 #include <stdlib.h>
+#include <errno.h>
+#include <stdio.h>
 
 Node_t* last = NULL; 
 Node_t* first = NULL; 
 
 void push(int *connfd) {
+    
     Node_t *newnode = malloc(sizeof(Node_t)); 
+
+    if (newnode == NULL) {
+        fprintf(stderr, "fail to malloc!\n");
+		return NULL;
+    }
+
     newnode->connfd= connfd; 
     newnode->next = NULL; 
+    
     if (last == NULL) {
         first = newnode; 
     }
@@ -24,12 +34,12 @@ int* pop(){
     }
     else {
         int *value = first->connfd; 
-        Node_t *temp = first; 
+        Node_t *con = first; 
         first = first->next; 
         if (first == NULL) {
             last = NULL; 
         }
-        free(temp); 
+        free(con); 
         return value; 
     }
 }

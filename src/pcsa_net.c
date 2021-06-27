@@ -3,7 +3,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "parse.h"
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
@@ -12,6 +11,8 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <errno.h>
+#include <poll.h>
+#include "parse.h"
 #define LISTEN_QUEUE 5
 #define MAXBUF 8192
 
@@ -57,6 +58,10 @@ int open_listenfd(char *port) {
         close(listenFd);
         return -1;
     }
+
+    // memset(fds, 0 , sizeof(fds));
+    // fds[0].fd = listenFd;
+    // fds[0].events = POLLIN;
 
     /* All good, return the file descriptor */
     return listenFd;

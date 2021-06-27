@@ -27,6 +27,10 @@ typedef struct
 	int header_count;
 } Request;
 
+typedef struct poll_timeout{
+	int timeout; 
+} poll_t; 
+
 Request* parse(char *buffer, int size,int socketFd);
 
 // functions decalred in parser.y

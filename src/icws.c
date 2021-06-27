@@ -12,6 +12,8 @@
 #include <netinet/ip.h>
 #include <getopt.h>
 #include <time.h>
+#include <poll.h>
+
 //#include "workQueue.hpp"
 // extern "C" 
 // {
@@ -24,6 +26,10 @@
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  
 pthread_cond_t condition_variable = PTHREAD_COND_INITIALIZER; 
+
+struct pollfd fds[1]; 
+int timeOut;
+int ret; 
 
 char *rootFolder_glob;
 
@@ -43,10 +49,6 @@ static struct option long_options[] =   {
     {"timeout", required_argument, NULL, 'o'},
     {NULL, 0, NULL, 0}
 };
-
-// struct {
-//     work_queue work_q;
-// } shared;
 
 typedef enum {
   RUNNING, EXITING
@@ -81,7 +83,8 @@ void respond_head(int connFd, char *uri, char *mime) {
                 "HTTP/1.1 404 Not Found\r\n"
                 "Date: %s"
                 "Server: icws\r\n"
-                "Connection: close\r\n\r\n",local_time());
+                "Connection: close\r\n\r\n"
+                ,local_time());
         write_all(connFd, buf, strlen(buf));
         write_all(connFd, msg, strlen(msg));
         return;
@@ -94,8 +97,9 @@ void respond_head(int connFd, char *uri, char *mime) {
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size,mime);
+            "Content-type: %s\r\n"
+            "Last-Modified: %s\r\n\r\n",
+            local_time(),fstatbuf.st_size,mime,fstatbuf.st_mtim);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
 }
 
@@ -126,8 +130,9 @@ void respond_all(int connFd, char *uri, char *mime)
             "Server: icws\r\n"
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
-            "Content-type: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size, mime);
+            "Content-type: %s\r\n"
+            "Last-Modified: %s\r\n\r\n",
+            local_time(),fstatbuf.st_size, mime,fstatbuf.st_mtim);
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
     write_logic(uriFd, connFd); // send the content data into connFd
 }
@@ -194,12 +199,32 @@ void serve_http(int* connfd,char *rootFolder)
     int sizeRat = 0; 
 
     int connFd = *((int*)connfd); 
+    
     printf("connFd in serv: %d \n", connFd); 
-    while((readRet = read_line(connFd, buf, MAXBUF))>0) {
-        sizeRat+=readRet; 
-        strcat(buffer, buf); 
-        if (!strcmp(buf,"\r\n")) {
-            break; 
+
+    fds[0].fd = connFd; 
+    fds[0].events = POLLIN;
+
+    ret = poll(fds,1,timeOut);
+
+    if (ret == -1) {
+		perror ("poll");
+		exit(1); 
+	}
+
+    if (!ret) {
+        printf("ret = %d \n", ret); 
+        printf(" Timeout \n");     
+    }
+  
+    if (fds[0].revents & POLLIN) {
+
+        while((readRet = read_line(connFd, buf, MAXBUF))>0) {
+            sizeRat+=readRet; 
+            strcat(buffer, buf); 
+            if (!strcmp(buf,"\r\n")) {
+                break; 
+            }
         }
     }
 
@@ -289,12 +314,13 @@ void * do_work(void *pool) {
         //printf("numthread: %d \n", t_pool->thread_count);
         pthread_mutex_lock(&mutex); 
         int *ct_client; 
+        ct_client = pop(); 
     
-        if ((ct_client = pop()) == NULL) {
+        if (ct_client == NULL) {
 
             pthread_cond_wait(&condition_variable, &mutex); 
             ct_client = pop();
-            printf("ct_client: %d \n", ct_client);   
+            //printf("ct_client: %d \n", ct_client);   
         }
         pthread_mutex_unlock(&mutex); 
 
@@ -303,29 +329,8 @@ void * do_work(void *pool) {
             serve_http(ct_client,rootFolder_glob); 
             int connFd = *((int*)ct_client);  
             close(connFd);
-        }
-        //printf("state: %s \n", t_pool->state);
-        //char * r_fd = (char *)rootFolder; 
-        // long w;
-        // if (shared.work_q.remove_job(&w)) {
-        //     if (w == NULL) break; // Terminate with a number < 0 , inactive file discriptor 
-        //     // NOTE: in fact printf is not thread safe
-        //     serve_http(w,rootFolder_glob);   
-        //     close(w);
-        // }
-
-        // else {
-            
-        //     // printf("im going to break \n"); 
-        //     // break; 
-        //     sleep(3); 
-        //     // pthread_mutex_lock(&shared.work_q.jobs_mutex);
-        //     // pthread_cond_wait(&shared.work_q.condition_variable, &shared.work_q.jobs_mutex);
-        //     // pthread_mutex_unlock(&shared.work_q.jobs_mutex);
-        // }
-    }
-        /* Option 5: Go to sleep until it's been notified of changes in the
-         * work_queue. Use semaphores or conditional variables  */
+        }  
+    }  
 }
 
 // void* conn_handler(void *args) {
@@ -345,8 +350,8 @@ int main(int argc, char *argv[])
 {
     int option; 
     int listenFd;
+    int port;
     char *rootFolder;
-    int timeOut;
     int numThread;
     threadpool *pool;
 
@@ -359,6 +364,11 @@ int main(int argc, char *argv[])
     while ((option = getopt_long(argc,argv,"p:r:t:o", long_options, NULL)) != -1) {   
         
         switch (option) {
+
+            case 'o': 
+            timeOut = atoi(optarg);
+            printf("timeOut: %d \n", timeOut); 
+            break;
 
             case 'p':
             printf("port: %s \n", optarg);
@@ -377,15 +387,17 @@ int main(int argc, char *argv[])
             printf("numThread: %d \n", numThread); 
             break;
 
-            case 'o': 
-            timeOut = atoi(optarg);
-            printf("timeOut: %d \n", timeOut); 
-            break;
-
             default: 
             exit(1); 
         } 
     }
+
+    // struct poll_timeout *poll_to = 
+    //         (struct poll_timeout *) malloc(sizeof(struct poll_timeout));
+
+    // poll_to->timeout = timeOut; 
+
+    printf("timeOut: in icws %d \n", timeOut); 
 
     pool = (threadpool *) malloc(sizeof(threadpool));
     if (pool == NULL) { 
@@ -423,16 +435,27 @@ int main(int argc, char *argv[])
         struct survival_bag *context = 
             (struct survival_bag *) malloc(sizeof(struct survival_bag));
 
+        if (context == NULL) { 
+            fprintf(stderr, "fail to malloc!\n");
+		    return NULL;
+        }
+
         context->connFd = connFd;
-        printf("connFd: %d \n", connFd); 
+        //printf("connFd: %d \n", connFd); 
         context->rootFolder = rootFolder;
         rootFolder_glob = context->rootFolder; 
-        printf("rootFolder_glob: %s \n", rootFolder_glob); 
+        //printf("rootFolder_glob: %s \n", rootFolder_glob); 
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
         //shared.work_q.add_job(context->connFd); 
         //conn_handler((void *) context);
 
         int *cf_client = (int *)malloc(sizeof(int)); 
+
+        if (cf_client == NULL) { 
+            fprintf(stderr, "fail to malloc!\n");
+		    return NULL;
+        } 
+
         *cf_client = context->connFd; 
         pthread_mutex_lock(&mutex); 
         push(cf_client); 
