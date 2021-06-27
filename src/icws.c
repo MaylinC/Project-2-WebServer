@@ -312,34 +312,26 @@ void * do_work(void *pool) {
         threadpool *t_pool = (threadpool *) pool;
         //printf("numthread: %d \n", t_pool->thread_count);
         pthread_mutex_lock(&mutex); 
-        int *ct_client; 
-        ct_client = pop(); 
+        int *cf_client; 
+        cf_client = pop(); 
     
-        if (ct_client == NULL) {
+        if (cf_client == NULL) {
 
             pthread_cond_wait(&condition_variable, &mutex); 
-            ct_client = pop();
+            cf_client = pop();
             //printf("ct_client: %d \n", ct_client);   
         }
         pthread_mutex_unlock(&mutex); 
 
-        if (ct_client != NULL) {
+        if (cf_client != NULL) {
             
-            serve_http(ct_client,rootFolder_glob); 
-            int connFd = *((int*)ct_client);  
+            serve_http(cf_client,rootFolder_glob); 
+            int connFd = *((int*)cf_client);  
             close(connFd);
 
         }  
     }  
 }
-
-// void* conn_handler(void *args) {
-
-//     struct survival_bag *context = (struct survival_bag *) args;
-//     //pthread_detach(pthread_self());
-//     serve_http(context->connFd,context->rootFolder);
-//     return NULL; /* Nothing meaningful to return */
-// }
 
 void print_usage() {
     printf("Usage: ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout>  \n"); 
@@ -438,20 +430,7 @@ int main(int argc, char *argv[])
         //printf("rootFolder_glob: %s \n", rootFolder_glob); 
         memcpy(&context->clientAddr, &clientAddr, sizeof(struct sockaddr_storage));
         //shared.work_q.add_job(context->connFd); 
-        //conn_handler((void *) context);
-
-        cf_client = (int *)malloc(sizeof(int)); 
-
-        if (cf_client == NULL) { 
-            fprintf(stderr, "fail to malloc!\n");
-		    return NULL;
-        } 
-
-        *cf_client = context->connFd; 
-        pthread_mutex_lock(&mutex); 
-        push(cf_client); 
-        pthread_cond_signal(&condition_variable); 
-        pthread_mutex_unlock(&mutex);  
+        //conn_handler((void *) context); 
 
         char hostBuf[MAXBUF], svcBuf[MAXBUF];
         if (getnameinfo((SA *)&clientAddr, clientLen,
@@ -460,7 +439,22 @@ int main(int argc, char *argv[])
         else
             printf("Connection from ?UNKNOWN?\n");
         
+
+        cf_client = (int *)malloc(sizeof(int)); 
+
+        if (cf_client == NULL) { 
+            fprintf(stderr, "fail to malloc!\n");
+		    return NULL;
+        } 
+
+        pthread_mutex_lock(&mutex); 
+        *cf_client = context->connFd;
+        push(cf_client); 
+        pthread_cond_signal(&condition_variable); 
+        pthread_mutex_unlock(&mutex); 
+
         free(context);
+
     }
 
     free(pool->thread_array);
