@@ -23,6 +23,7 @@
 #define MAXBUF 8192
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  
+pthread_mutex_t parse_mutex = PTHREAD_MUTEX_INITIALIZER; 
 pthread_cond_t condition_variable = PTHREAD_COND_INITIALIZER; 
 
 struct pollfd fds[1]; 
@@ -96,8 +97,8 @@ void respond_head(int connFd, char *uri, char *mime) {
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
-            "Last-Modified: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size,mime,fstatbuf.st_mtim);
+            "Last-Modified: %s\r\n",
+            local_time(),fstatbuf.st_size,mime,ctime(&fstatbuf.st_mtim));
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
 }
 
@@ -129,8 +130,8 @@ void respond_all(int connFd, char *uri, char *mime)
             "Connection: close\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
-            "Last-Modified: %s\r\n\r\n",
-            local_time(),fstatbuf.st_size, mime,fstatbuf.st_mtim);
+            "Last-Modified: %s\r\n",
+            local_time(),fstatbuf.st_size, mime,ctime(&fstatbuf.st_mtim));
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
     write_logic(uriFd, connFd); // send the content data into connFd
 }
@@ -203,7 +204,7 @@ void serve_http(int* connfd,char *rootFolder)
     fds[0].fd = connFd; 
     fds[0].events = POLLIN;
 
-    ret = poll(fds,1,timeOut);
+    ret = poll(fds,1,timeOut * 1000);
 
     if (ret == -1) {
 		perror ("poll error");
@@ -212,7 +213,7 @@ void serve_http(int* connfd,char *rootFolder)
 
     if (!ret) {
         printf("ret = %d \n", ret); 
-        printf(" Timeout \n");     
+        printf("Timeout: %d second pass \n", timeOut);     
     }
   
     if (fds[0].revents & POLLIN) {
@@ -232,11 +233,11 @@ void serve_http(int* connfd,char *rootFolder)
 	    return;
 	}
 
-    pthread_mutex_lock(&mutex); 
+    pthread_mutex_lock(&parse_mutex); 
 
     Request *request = parse(buffer,sizeRat,connFd);
 
-    pthread_mutex_unlock(&mutex);  
+    pthread_mutex_unlock(&parse_mutex);  
     
     if (request == NULL) // handled malformede request
     {
@@ -327,6 +328,7 @@ void * do_work(void *pool) {
             serve_http(ct_client,rootFolder_glob); 
             int connFd = *((int*)ct_client);  
             close(connFd);
+
         }  
     }  
 }
