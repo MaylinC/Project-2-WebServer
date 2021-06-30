@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -20,6 +21,8 @@
 // }
 #include "parse.h"
 #include "work_q.h"
+#include <sys/wait.h>
+#define BUFSIZE 2048
 #define MAXBUF 8192
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  
@@ -30,6 +33,8 @@ struct pollfd fds[1];
 int timeOut;
 int ret; 
 int *cf_client; 
+char *program; 
+int persistance = 1; 
 
 char *rootFolder_glob;
 
@@ -47,6 +52,7 @@ static struct option long_options[] =   {
     {"root", required_argument, NULL, 'r'},
     {"numThreads", required_argument, NULL, 't'},
     {"timeout", required_argument, NULL, 'o'},
+    {"cgiHandler", required_argument, NULL, 'c'},
     {NULL, 0, NULL, 0}
 };
 
@@ -70,10 +76,18 @@ char *local_time() {
 
 }
 
-void respond_head(int connFd, char *uri, char *mime) { 
+void respond_head(int connFd, char *uri, char *mime, int persis) { 
 
     char buf[MAXBUF];
     int uriFd = open(uri, O_RDONLY);
+    char *connection; 
+
+    if (persis == 0) {
+        connection = "close"; 
+    }
+    else {
+        connection = "keep-alive"; 
+    }
 
     if (uriFd < 0 || mime == NULL)
     {
@@ -86,6 +100,7 @@ void respond_head(int connFd, char *uri, char *mime) {
                 ,local_time());
         write_all(connFd, buf, strlen(buf));
         write_all(connFd, msg, strlen(msg));
+        persistance = 0;
         return;
     }
     struct stat fstatbuf;
@@ -94,19 +109,27 @@ void respond_head(int connFd, char *uri, char *mime) {
             "HTTP/1.1 200 OK\r\n"
             "Date: %s"
             "Server: icws\r\n"
-            "Connection: close\r\n"
+            "Connection: %s\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
             "Last-Modified: %s\r\n",
-            local_time(),fstatbuf.st_size,mime,ctime(&fstatbuf.st_mtim));
+            local_time(),connection,fstatbuf.st_size,mime,ctime(&fstatbuf.st_mtim));
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
 }
 
 
-void respond_all(int connFd, char *uri, char *mime)
+void respond_all(int connFd, char *uri, char *mime, int persis)
 {
     char buf[MAXBUF];
     int uriFd = open(uri, O_RDONLY);
+    char *connection; 
+
+    if (persis == 0) {
+        connection = "close"; 
+    }
+    else {
+        connection = "keep-alive"; 
+    }
     
     char *msg = "404 Not Found";
     if (uriFd < 0 || mime == NULL)
@@ -118,6 +141,7 @@ void respond_all(int connFd, char *uri, char *mime)
                 "Connection: close\r\n\r\n",local_time());
         write_all(connFd, buf, strlen(buf));
         write_all(connFd, msg, strlen(msg));
+        persistance = 0;
         return;
     }
 
@@ -127,11 +151,11 @@ void respond_all(int connFd, char *uri, char *mime)
             "HTTP/1.1 200 OK\r\n"
             "Date: %s"
             "Server: icws\r\n"
-            "Connection: close\r\n"
+            "Connection: %s\r\n"
             "Content-length: %lu\r\n"
             "Content-type: %s\r\n"
             "Last-Modified: %s\r\n",
-            local_time(),fstatbuf.st_size, mime,ctime(&fstatbuf.st_mtim));
+            local_time(),connection,fstatbuf.st_size, mime,ctime(&fstatbuf.st_mtim));
     write_all(connFd, buf, strlen(buf));  // write header into  connFd
     write_logic(uriFd, connFd); // send the content data into connFd
 }
@@ -187,6 +211,78 @@ char *parse_file_type(int connFd,char *rootFolder, Request *request) {
     }
 }
 
+void fail_exit(char *msg) { fprintf(stderr, "%s\n", msg); exit(-1); }
+
+void cgi(char *inferiorCmd ,Request *request) {
+    int c2pFds[2]; /* Child to parent pipe */
+    int p2cFds[2]; /* Parent to child pipe */
+
+    if (pipe(c2pFds) < 0) fail_exit("c2p pipe failed.");
+    if (pipe(p2cFds) < 0) fail_exit("p2c pipe failed.");
+
+    int pid = fork();
+
+    if (pid < 0) fail_exit("Fork failed.");
+    if (pid == 0) { /* Child - set up the conduit & run inferior cmd */
+
+        /* Wire pipe's incoming to child's stdin */
+        /* First, close the unused direction. */
+        if (close(p2cFds[1]) < 0) fail_exit("failed to close p2c[1]");
+        if (p2cFds[0] != STDIN_FILENO) {
+            if (dup2(p2cFds[0], STDIN_FILENO) < 0)
+                fail_exit("dup2 stdin failed.");
+            if (close(p2cFds[0]) < 0)
+                fail_exit("close p2c[0] failed.");
+        }
+
+        /* Wire child's stdout to pipe's outgoing */
+        /* But first, close the unused direction */
+        if (close(c2pFds[0]) < 0) fail_exit("failed to close c2p[0]");
+        if (c2pFds[1] != STDOUT_FILENO) {
+            if (dup2(c2pFds[1], STDOUT_FILENO) < 0)
+                fail_exit("dup2 stdin failed.");
+            if (close(c2pFds[1]) < 0)
+                fail_exit("close pipeFd[0] failed.");
+        }
+
+        char* inferiorArgv[] = {inferiorCmd, NULL};
+        if (execvpe(inferiorArgv[0], inferiorArgv, environ) < 0)
+            fail_exit("exec failed.");
+    }
+    else { /* Parent - send a random message */
+        /* Close the write direction in parent's incoming */
+        if (close(c2pFds[1]) < 0) fail_exit("failed to close c2p[1]");
+
+        /* Close the read direction in parent's outgoing */
+        if (close(p2cFds[0]) < 0) fail_exit("failed to close p2c[0]");
+
+        char *message = "OMGWTFBBQ\n";
+        /* Write a message to the child - replace with write_all as necessary */
+        write(p2cFds[1], message, strlen(message));
+        /* Close this end, done writing. */
+        if (close(p2cFds[1]) < 0) fail_exit("close p2c[01] failed.");
+
+        char buf[BUFSIZE+1];
+        ssize_t numRead;
+        /* Begin reading from the child */
+        while ((numRead = read(c2pFds[0], buf, BUFSIZE))>0) {
+            printf("Parent saw %ld bytes from child...\n", numRead);
+            buf[numRead] = '\x0'; /* Printing hack; won't work with binary data */
+            printf("-------\n");
+            printf("%s", buf);
+            printf("-------\n");
+        }
+        /* Close this end, done reading. */
+        if (close(c2pFds[0]) < 0) fail_exit("close c2p[01] failed.");
+
+        /* Wait for child termination & reap */
+        int status;
+
+        if (waitpid(pid, &status, 0) < 0) fail_exit("waitpid failed.");
+        printf("Child exited... parent's terminating as well.\n");
+    }
+}
+
 void serve_http(int* connfd,char *rootFolder)
 {
     
@@ -195,9 +291,10 @@ void serve_http(int* connfd,char *rootFolder)
     char head[MAXBUF];
     char newPath[80];
     int readRet; 
+    char *connetion; 
     int sizeRat = 0; 
-
     int connFd = *((int*)connfd); 
+    memset(buffer,'\0',MAXBUF); 
     
     //printf("connFd in serv: %d \n", connFd); 
 
@@ -213,7 +310,11 @@ void serve_http(int* connfd,char *rootFolder)
 
     if (!ret) {
         printf("ret = %d \n", ret); 
-        printf("Timeout: %d second pass \n", timeOut);     
+        printf("Timeout: %d second pass \n", timeOut);  
+        sprintf(buf,"Timeout: %d second pass \r\n", timeOut);
+        write_all(connFd, buf, strlen(buf));
+        persistance = 0;
+        return; 
     }
   
     if (fds[0].revents & POLLIN) {
@@ -221,11 +322,13 @@ void serve_http(int* connfd,char *rootFolder)
         while((readRet = read_line(connFd, buf, MAXBUF))>0) {
             sizeRat+=readRet; 
             strcat(buffer, buf); 
-            if (!strcmp(buf,"\r\n")) {
+            if (!strcmp(buf,"\r\n")){
                 break; 
             }
         }
     }
+
+    printf("buffer: %s", buffer); 
 
     //printf("readRet: %d", readRet); 
     if (readRet < 0) {
@@ -234,10 +337,8 @@ void serve_http(int* connfd,char *rootFolder)
 	}
 
     pthread_mutex_lock(&parse_mutex); 
-
     Request *request = parse(buffer,sizeRat,connFd);
-
-    pthread_mutex_unlock(&parse_mutex);  
+    pthread_mutex_unlock(&parse_mutex); 
     
     if (request == NULL) // handled malformede request
     {
@@ -249,35 +350,20 @@ void serve_http(int* connfd,char *rootFolder)
                 "Connection: close\r\n\r\n",local_time());
         write_all(connFd, head, strlen(head));
         free(request);
+        persistance = 0;
         return;
     }
 
-    else if (strcasecmp(request->http_method, "GET") == 0)
-    {
-        if (request->http_uri[0] == '/') {
-
-            sprintf(newPath, "%s%s", rootFolder, request->http_uri);
-
-            printf("newPath: %s \n", newPath); 
-            printf("exten: %s \n", get_filename_ext(request->http_uri)); 
-
-            respond_all(connFd, newPath, parse_file_type(connFd,rootFolder,request)); 
-        }
-    }
-    else if (strcasecmp(request->http_method, "Head") == 0) {
-         
-        if (request->http_uri[0] == '/') {
-
-            sprintf(newPath, "%s%s", rootFolder, request->http_uri);
-
-            printf("newPath: %s \n", newPath); 
-            printf("exten: %s \n", get_filename_ext(request->http_uri)); 
-
-            respond_head(connFd, newPath, parse_file_type(connFd,rootFolder,request)); 
+    for(int index = 0; index < request->header_count; index++) {
+        if (strcasecmp(request->headers[index].header_name, "Connection") == 0) {
+            if (strcasecmp(request->headers[index].header_value, "keep-alive") != 0) {
+                persistance = 0;
+                break; 
+            }
         }
     }
 
-    else if (strcasecmp(request->http_version, "HTTP/1.1") != 0) {
+    if (strcasecmp(request->http_version, "HTTP/1.1") != 0 && (strcasecmp(request->http_version, "HTTP/1.0") != 0)) {
         
         printf("LOG: Not Supported the current HTTP Version \n");
         sprintf(head,
@@ -289,7 +375,37 @@ void serve_http(int* connfd,char *rootFolder)
         write_all(connFd, head, strlen(head));
         free(request->headers); 
         free(request);
+        persistance = 0;
         return;
+    }
+
+    if (strstr(request->http_uri,"cgi") != NULL) {
+        cgi(program,request); 
+    }
+
+    if (strcasecmp(request->http_method, "GET") == 0)
+    {
+        if (request->http_uri[0] == '/') {
+
+            sprintf(newPath, "%s%s", rootFolder, request->http_uri);
+
+            printf("newPath: %s \n", newPath); 
+            printf("exten: %s \n", get_filename_ext(request->http_uri)); 
+
+            respond_all(connFd, newPath, parse_file_type(connFd,rootFolder,request),persistance); 
+        }
+    }
+    else if (strcasecmp(request->http_method, "Head") == 0) {
+         
+        if (request->http_uri[0] == '/') {
+
+            sprintf(newPath, "%s%s", rootFolder, request->http_uri);
+
+            printf("newPath: %s \n", newPath); 
+            printf("exten: %s \n", get_filename_ext(request->http_uri)); 
+
+            respond_head(connFd, newPath, parse_file_type(connFd,rootFolder,request),persistance); 
+        }
     }
 
     else {
@@ -301,6 +417,7 @@ void serve_http(int* connfd,char *rootFolder)
                 "Connection: close\r\n\r\n",local_time());
         write_all(connFd, head, strlen(head));
         free(request);
+        persistance = 0;
         return;
     }
 }
@@ -325,16 +442,20 @@ void * do_work(void *pool) {
 
         if (cf_client != NULL) {
             
-            serve_http(cf_client,rootFolder_glob); 
-            int connFd = *((int*)cf_client);  
-            close(connFd);
+            while (persistance == 1) { 
+                serve_http(cf_client,rootFolder_glob); 
+            }
 
+            if (persistance == 0) {
+                int connFd = *((int*)cf_client);  
+                close(connFd);
+            }
         }  
     }  
 }
 
 void print_usage() {
-    printf("Usage: ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout>  \n"); 
+    printf("Usage: ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> --cgiHandler <cgiProgram>  \n"); 
     exit(1); 
 }
 
@@ -347,13 +468,15 @@ int main(int argc, char *argv[])
     int numThread;
     threadpool *pool;
 
-    //pthread_t thread_array[numThread]; 
+    pthread_mutex_init(&mutex,NULL);
+    pthread_mutex_init(&parse_mutex,NULL);
+    pthread_cond_init(&condition_variable,NULL);
 
     if (argc < 9) {
         print_usage(); 
     } 
 
-    while ((option = getopt_long(argc,argv,"p:r:t:o", long_options, NULL)) != -1) {   
+    while ((option = getopt_long(argc,argv,"p:r:t:o:c", long_options, NULL)) != -1) {   
         
         switch (option) {
 
@@ -377,6 +500,11 @@ int main(int argc, char *argv[])
             printf("numThread: %d \n", numThread); 
             break;
 
+            case 'c': 
+            program = optarg;
+            printf("cgiHandler: %s \n", program); 
+            break;
+            
             default: 
             exit(1); 
         } 
@@ -397,8 +525,7 @@ int main(int argc, char *argv[])
         free(pool);
 		return NULL;
     }
-    //thread_array = (pthread_t*)malloc(sizeof(pthread_t)*numThread);
-    for(int i = 0; i < pool->thread_count; i++){  // create thread accroding to numThread
+    for(int i = 0; i < pool->thread_count; i++){ 
         pthread_create(& pool->thread_array[i],NULL,do_work,(void *)pool); 
     }
     
@@ -440,14 +567,14 @@ int main(int argc, char *argv[])
             printf("Connection from ?UNKNOWN?\n");
         
 
+        pthread_mutex_lock(&mutex); 
+
         cf_client = (int *)malloc(sizeof(int)); 
 
         if (cf_client == NULL) { 
             fprintf(stderr, "fail to malloc!\n");
 		    return NULL;
         } 
-
-        pthread_mutex_lock(&mutex); 
         *cf_client = context->connFd;
         push(cf_client); 
         pthread_cond_signal(&condition_variable); 
