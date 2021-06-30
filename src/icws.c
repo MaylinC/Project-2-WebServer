@@ -76,10 +76,7 @@ char *local_time() {
 
 }
 
-void respond_head(int connFd, char *uri, char *mime, int persis) { 
-
-    char buf[MAXBUF];
-    int uriFd = open(uri, O_RDONLY);
+char *checkpresistance(int persis) {
     char *connection; 
 
     if (persis == 0) {
@@ -88,6 +85,17 @@ void respond_head(int connFd, char *uri, char *mime, int persis) {
     else {
         connection = "keep-alive"; 
     }
+    return connection; 
+
+}
+
+void respond_head(int connFd, char *uri, char *mime, int persis) { 
+
+    char buf[MAXBUF];
+    int uriFd = open(uri, O_RDONLY);
+    char *connection; 
+
+    connection = checkpresistance(persis); 
 
     if (uriFd < 0 || mime == NULL)
     {
@@ -124,12 +132,7 @@ void respond_all(int connFd, char *uri, char *mime, int persis)
     int uriFd = open(uri, O_RDONLY);
     char *connection; 
 
-    if (persis == 0) {
-        connection = "close"; 
-    }
-    else {
-        connection = "keep-alive"; 
-    }
+    connection = checkpresistance(persis); 
     
     char *msg = "404 Not Found";
     if (uriFd < 0 || mime == NULL)
@@ -224,6 +227,49 @@ void cgi(char *inferiorCmd ,Request *request) {
 
     if (pid < 0) fail_exit("Fork failed.");
     if (pid == 0) { /* Child - set up the conduit & run inferior cmd */
+
+        for(int index = 0; index < request->header_count; index++) {
+
+            if (strcasecmp(request->headers[index].header_name, "Content-Length") == 0) { 
+                setenv("CONTENT_LENGTH", request->headers[index].header_value, 1); 
+            }
+            if (strcasecmp(request->headers[index].header_name, "Content-Type") == 0) {
+                setenv("CONTENT_TYPE", request->headers[index].header_value, 1); 
+            }
+            if (strcasecmp(request->headers[index].header_name, "Host") == 0) {
+                setenv("HTTP_HOST", request->headers[index].header_value, 1); 
+            }
+            if (strcasecmp(request->headers[index].header_name, "Access-Control-Request-Method") == 0) {
+                setenv("REQUEST_METHOD", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Accept") == 0) {
+                setenv("HTTP_ACCEPT", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Referer") == 0) {
+                setenv("HTTP_REFERER", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Accept-Encoding") == 0) {
+                setenv("HTTP_ACCEPT_ENCODING", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Accept-Language") == 0) {
+                setenv("HTTP_ACCEPT_LANGUAGE", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Cookie") == 0) {
+                setenv("HTTP_COOKIE", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "User-Agent") == 0) {
+                setenv("HTTP_USER_AGENT", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Connection") == 0) {
+                setenv("HTTP_CONNECTION", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Request-URI") == 0) {
+                setenv("REQUEST_URI", request->headers[index].header_value, 1);
+            }
+            if (strcasecmp(request->headers[index].header_name, "Accept-Charset") == 0) {
+                setenv("HTTP_ACCEPT_CHARSET", request->headers[index].header_value, 1);
+            }
+        }
 
         /* Wire pipe's incoming to child's stdin */
         /* First, close the unused direction. */
@@ -455,7 +501,7 @@ void * do_work(void *pool) {
 }
 
 void print_usage() {
-    printf("Usage: ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout> --cgiHandler <cgiProgram>  \n"); 
+    printf("Usage: ./icws --port <listenPort> --root <wwwRoot> --numThreads <numThreads> --timeout <timeout>  or add --cgiHandler <cgiProgram>  \n"); 
     exit(1); 
 }
 
@@ -579,7 +625,6 @@ int main(int argc, char *argv[])
         push(cf_client); 
         pthread_cond_signal(&condition_variable); 
         pthread_mutex_unlock(&mutex); 
-
         free(context);
 
     }
